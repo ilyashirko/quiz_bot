@@ -1,0 +1,11 @@
+env
+venv
+
+.env
+
+quiz-questions/
+
+preface
+
+*.json
+*.txt
