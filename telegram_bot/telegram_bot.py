@@ -81,7 +81,7 @@ def change_question(update: Update, context: CallbackContext) -> None:
         text=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
     )
     redis.delete(f'{update.effective_chat.id}_current_question')
-    send_answer(update, context)
+    return ConversationHandler.END
 
 
 def show_score(update: Update, context: CallbackContext) -> None:
