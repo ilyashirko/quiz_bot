@@ -9,3 +9,5 @@ preface
 
 *.json
 *.txt
+
+**/__pycache__
