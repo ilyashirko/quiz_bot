@@ -13,6 +13,8 @@ from telegram.ext import (CallbackContext, CallbackQueryHandler,
                           CommandHandler, ConversationHandler, Filters,
                           MessageHandler, Updater)
 
+from log_handlers import TelegramLogsHandler
+
 redis = Redis(host='localhost', port=6379, db=0)
 
 logger = logging.getLogger('log.log')
@@ -147,6 +149,12 @@ def errors_handler(update: Update, context: CallbackContext) -> None:
 
 def startbot(tg_bot_token: str) -> None:
     updater = Updater(token=tg_bot_token, use_context=True)
+
+    logger.setLevel(logging.INFO)
+    logger.addHandler(
+        TelegramLogsHandler(updater.bot, env.int('ADMIN_TELEGRAM_ID'))
+    )
+    logger.info('[TELEGRAM] Support bot started')
 
     updater.dispatcher.add_handler(
         CommandHandler(command='start', callback=start)
