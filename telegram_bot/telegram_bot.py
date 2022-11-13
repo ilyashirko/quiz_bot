@@ -1,16 +1,24 @@
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CommandHandler, ConversationHandler, CallbackQueryHandler
-from environs import Env
-import logging
 import json
-import settings
-from redis import Redis
-from random import choice
+import logging
 from difflib import SequenceMatcher
+from random import choice
+from typing import Union
+
+import settings
+from environs import Env
+from redis import Redis
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
+                      ReplyKeyboardMarkup, ReplyKeyboardRemove, Update)
+from telegram.ext import (CallbackContext, CallbackQueryHandler,
+                          CommandHandler, ConversationHandler, Filters,
+                          MessageHandler, Updater)
 
 redis = Redis(host='localhost', port=6379, db=0)
 
 logger = logging.getLogger('log.log')
+
+with open('new_test.json', 'r') as file:
+    questions = json.load(file)
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
@@ -19,10 +27,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
     )
-
-CANCEL_INLINE_KEYBOARD = InlineKeyboardMarkup(
-    [[InlineKeyboardButton(text='Не хочу отвечать', callback_data='cancel')]]
-)
 
 
 def start(update: Update, context: CallbackContext) -> None:
@@ -43,13 +47,7 @@ def answer_clarify(answer: str,
     return answer.strip()
 
 
-def message_handler(update: Update, context: CallbackContext) -> None:
-    context.bot.send_message(
-        update.effective_chat.id,
-        text=update.message.text
-    )
-
-def send_answer(update: Update, context: CallbackContext) -> None:
+def send_answer(update: Update, context: CallbackContext) -> str:
     current_question = redis.get(
         f'{update.effective_chat.id}_current_question'
     )
@@ -60,15 +58,13 @@ def send_answer(update: Update, context: CallbackContext) -> None:
         )
         question = current_question.decode('utf-8')
     else:
-        with open('new_test.json', 'r') as file:
-            file_data = json.load(file)
-        question = choice(file_data)["question"]
+        
+        question = choice(questions)["question"]
         redis.set(f'{update.effective_chat.id}_current_question', question)
 
     context.bot.send_message(
         update.effective_chat.id,
-        text=question,
-        reply_markup=CANCEL_INLINE_KEYBOARD
+        text=question
     )
     return 'GET_ANSWER'
 
@@ -100,19 +96,19 @@ def show_score(update: Update, context: CallbackContext) -> None:
         )
 
 
-def check_answer(update: Update, context: CallbackContext) -> None:
+def check_answer(update: Update, context: CallbackContext) -> Union[int, str]:
     current_question = redis.get(
         f'{update.effective_chat.id}_current_question'
     )
+    
     correct_answer = redis.get(current_question).decode('utf-8')
     clarified_answer = answer_clarify(correct_answer)
-    print(clarified_answer)
+    
     answer_ratio = SequenceMatcher(
         None,
         clarified_answer.lower(),
         update.message.text.lower()
     ).ratio()
-    print(answer_ratio)
     if answer_ratio >= env.float('ANSWER_RATIO_BORDER'):
         context.bot.send_message(
             update.effective_chat.id,
@@ -132,13 +128,12 @@ def check_answer(update: Update, context: CallbackContext) -> None:
     else:
         context.bot.send_message(
             update.effective_chat.id,
-            text='Неправильно… Попробуешь ещё раз?',
-            reply_markup=CANCEL_INLINE_KEYBOARD
+            text='Неправильно… Попробуешь ещё раз?'
         )
         return 'GET_ANSWER'
 
 
-def conversation_cancel(update: Update, context: CallbackContext) -> None:
+def conversation_cancel(update: Update, context: CallbackContext) -> int:
     context.bot.send_message(
         update.effective_chat.id,
         text='Ок',
@@ -150,7 +145,7 @@ def errors_handler(update: Update, context: CallbackContext) -> None:
     logger.error(msg='[TELEGRAM BOT ERROR]\n', exc_info=context.error)
 
 
-def startbot(tg_bot_token: str):
+def startbot(tg_bot_token: str) -> None:
     updater = Updater(token=tg_bot_token, use_context=True)
 
     updater.dispatcher.add_handler(
@@ -180,9 +175,9 @@ def startbot(tg_bot_token: str):
             },
 
             fallbacks=[
-                CallbackQueryHandler(
+                CommandHandler(
+                    command='cancel',
                     callback=conversation_cancel,
-                    pattern='cancel',
                 )
             ]
         )
