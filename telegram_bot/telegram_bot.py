@@ -62,7 +62,7 @@ def send_answer(update: Update, context: CallbackContext) -> None:
     else:
         with open('new_test.json', 'r') as file:
             file_data = json.load(file)
-        question = choice(file_data)['question']
+        question = choice(file_data)["question"]
         redis.set(f'{update.effective_chat.id}_current_question', question)
 
     context.bot.send_message(
@@ -71,6 +71,19 @@ def send_answer(update: Update, context: CallbackContext) -> None:
         reply_markup=CANCEL_INLINE_KEYBOARD
     )
     return 'GET_ANSWER'
+
+
+def change_question(update: Update, context: CallbackContext) -> None:
+    current_question = redis.get(
+        f'{update.effective_chat.id}_current_question'
+    )
+    correct_answer = redis.get(current_question).decode('utf-8')
+    context.bot.send_message(
+        update.effective_chat.id,
+        text=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
+    )
+    redis.delete(f'{update.effective_chat.id}_current_question')
+    send_answer(update, context)
 
 
 def check_answer(update: Update, context: CallbackContext) -> None:
@@ -131,7 +144,12 @@ def startbot(tg_bot_token: str):
             ],
 
             states={
-                'GET_ANSWER': [MessageHandler(Filters.text, check_answer)]
+                'GET_ANSWER': [
+                    MessageHandler(
+                        Filters.text([settings.GIVE_UP_BUTTON]),
+                        change_question
+                    ),
+                    MessageHandler(Filters.text, check_answer)]
             },
 
             fallbacks=[
