@@ -12,6 +12,7 @@ python-telegram-bot = "^13.14"
 tqdm = "^4.64.1"
 environs = "^9.5.0"
 redis = "^4.3.4"
+vk-api = "^11.9.9"
 
 
 [build-system]
