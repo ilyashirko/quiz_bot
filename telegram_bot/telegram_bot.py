@@ -1,5 +1,5 @@
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CommandHandler
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from telegram.ext import Updater, MessageHandler, Filters, CallbackContext, CommandHandler, ConversationHandler, CallbackQueryHandler
 from environs import Env
 import logging
 import json
@@ -19,6 +19,10 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
     )
+
+CANCEL_INLINE_KEYBOARD = InlineKeyboardMarkup(
+    [[InlineKeyboardButton(text='Не хочу отвечать', callback_data='cancel')]]
+)
 
 
 def start(update: Update, context: CallbackContext) -> None:
@@ -40,58 +44,70 @@ def answer_clarify(answer: str,
 
 
 def message_handler(update: Update, context: CallbackContext) -> None:
-    if update.message.text == settings.NEW_QUESTION_BUTTON:
-        current_question = redis.get(
-            f'{update.effective_chat.id}_current_question'
-        )
-        if current_question:
-            context.bot.send_message(
-                update.effective_chat.id,
-                text='Вы еще не ответили на предыдущий вопрос.'
-            )
-            question = current_question.decode('utf-8')
-        else:
-            with open('new_test.json', 'r') as file:
-                file_data = json.load(file)
-            question = choice(file_data)['question']
-            redis.set(f'{update.effective_chat.id}_current_question', question)
+    context.bot.send_message(
+        update.effective_chat.id,
+        text=update.message.text
+    )
+
+def send_answer(update: Update, context: CallbackContext) -> None:
+    current_question = redis.get(
+        f'{update.effective_chat.id}_current_question'
+    )
+    if current_question:
         context.bot.send_message(
             update.effective_chat.id,
-            text=question
+            text='Вы еще не ответили на предыдущий вопрос.'
         )
-        
+        question = current_question.decode('utf-8')
     else:
-        current_question = redis.get(
-            f'{update.effective_chat.id}_current_question'
-        )
-        
-        if current_question:
-            correct_answer = redis.get(current_question.decode('utf-8')).decode('utf-8')
-            clarified_answer = answer_clarify(correct_answer)
-            print(clarified_answer)
-            answer_ratio = SequenceMatcher(
-                None,
-                clarified_answer.lower(),
-                update.message.text.lower()
-            ).ratio()
-            print(answer_ratio)
-            if answer_ratio >= env.float('ANSWER_RATIO_BORDER'):
-                context.bot.send_message(
-                    update.effective_chat.id,
-                    text='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
-                )
-                redis.delete(f'{update.effective_chat.id}_current_question')
-            else:
-                context.bot.send_message(
-                    update.effective_chat.id,
-                    text='Неправильно… Попробуешь ещё раз?'
-                )
-        else:
+        with open('new_test.json', 'r') as file:
+            file_data = json.load(file)
+        question = choice(file_data)['question']
+        redis.set(f'{update.effective_chat.id}_current_question', question)
 
-            context.bot.send_message(
-                update.effective_chat.id,
-                text=update.message.text
-            )
+    context.bot.send_message(
+        update.effective_chat.id,
+        text=question,
+        reply_markup=CANCEL_INLINE_KEYBOARD
+    )
+    return 'GET_ANSWER'
+
+
+def check_answer(update: Update, context: CallbackContext) -> None:
+    current_question = redis.get(
+        f'{update.effective_chat.id}_current_question'
+    )
+    correct_answer = redis.get(current_question).decode('utf-8')
+    clarified_answer = answer_clarify(correct_answer)
+    print(clarified_answer)
+    answer_ratio = SequenceMatcher(
+        None,
+        clarified_answer.lower(),
+        update.message.text.lower()
+    ).ratio()
+    print(answer_ratio)
+    if answer_ratio >= env.float('ANSWER_RATIO_BORDER'):
+        context.bot.send_message(
+            update.effective_chat.id,
+            text='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
+        )
+        redis.delete(f'{update.effective_chat.id}_current_question')
+        return ConversationHandler.END
+    else:
+        context.bot.send_message(
+            update.effective_chat.id,
+            text='Неправильно… Попробуешь ещё раз?',
+            reply_markup=CANCEL_INLINE_KEYBOARD
+        )
+        return 'GET_ANSWER'
+
+
+def conversation_cancel(update: Update, context: CallbackContext) -> None:
+    context.bot.send_message(
+        update.effective_chat.id,
+        text='Ок',
+    )
+    return ConversationHandler.END
 
 
 def errors_handler(update: Update, context: CallbackContext) -> None:
@@ -105,6 +121,27 @@ def startbot(tg_bot_token: str):
         CommandHandler(command='start', callback=start)
     )
 
+    updater.dispatcher.add_handler(
+        ConversationHandler(
+            entry_points=[
+                MessageHandler(
+                    filters=Filters.text([settings.NEW_QUESTION_BUTTON]), 
+                    callback=send_answer
+                )
+            ],
+
+            states={
+                'GET_ANSWER': [MessageHandler(Filters.text, check_answer)]
+            },
+
+            fallbacks=[
+                CallbackQueryHandler(
+                    callback=conversation_cancel,
+                    pattern='cancel',
+                )
+            ]
+        )
+    )
     updater.dispatcher.add_handler(
         MessageHandler(filters=Filters.all, callback=message_handler)
     )
