@@ -86,6 +86,20 @@ def change_question(update: Update, context: CallbackContext) -> None:
     send_answer(update, context)
 
 
+def show_score(update: Update, context: CallbackContext) -> None:
+    user_score = redis.get(f'{update.effective_chat.id}_score')
+    if not user_score:
+        context.bot.send_message(
+            update.effective_chat.id,
+            text=f'У вас пока ноль очков',
+        )
+    else:
+        context.bot.send_message(
+            update.effective_chat.id,
+            text=f'Ваши очки: {user_score.decode("utf-8")}',
+        )
+
+
 def check_answer(update: Update, context: CallbackContext) -> None:
     current_question = redis.get(
         f'{update.effective_chat.id}_current_question'
@@ -105,6 +119,15 @@ def check_answer(update: Update, context: CallbackContext) -> None:
             text='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
         )
         redis.delete(f'{update.effective_chat.id}_current_question')
+
+        user_score = redis.get(f'{update.effective_chat.id}_score')
+        if not user_score:
+            redis.set(f'{update.effective_chat.id}_score', 1)
+        else:
+            redis.set(
+                f'{update.effective_chat.id}_score',
+                int(user_score.decode('utf-8')) + 1
+                )
         return ConversationHandler.END
     else:
         context.bot.send_message(
@@ -149,6 +172,10 @@ def startbot(tg_bot_token: str):
                         Filters.text([settings.GIVE_UP_BUTTON]),
                         change_question
                     ),
+                    MessageHandler(
+                        Filters.text([settings.SCORES_BUTTON]),
+                        show_score
+                    ),
                     MessageHandler(Filters.text, check_answer)]
             },
 
@@ -160,8 +187,12 @@ def startbot(tg_bot_token: str):
             ]
         )
     )
+
     updater.dispatcher.add_handler(
-        MessageHandler(filters=Filters.all, callback=message_handler)
+        MessageHandler(
+            filters=Filters.text(settings.SCORES_BUTTON),
+            callback=show_score
+        )
     )
 
     updater.dispatcher.add_error_handler(errors_handler)
