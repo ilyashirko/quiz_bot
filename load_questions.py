@@ -3,6 +3,8 @@ from pathlib import Path
 from tqdm import tqdm
 from redis import Redis
 from environs import Env
+import json
+
 
 def parse_questions_files(files_dir: str = 'quiz-questions') -> list:
     questions_filenames = os.listdir(files_dir)
@@ -20,11 +22,11 @@ def parse_questions_files(files_dir: str = 'quiz-questions') -> list:
             if paragraph.strip().find('Вопрос') != 0:
                 continue
 
-            question = paragraph[paragraph.find(':\n') + 2 :]
+            question = paragraph[paragraph.find(':\n') + 2:]
 
             next_paragraph = paragraphs[next_paragraph_index]
             
-            answer = next_paragraph[next_paragraph.find(':\n') + 2:]
+            answer = next_paragraph[next_paragraph.find(':\n') + 2:-1]
             
             questions.append({
                 'question': question,
@@ -45,8 +47,13 @@ if __name__ == '__main__':
         db=0
     )
     questions = parse_questions_files()
+    listed_questions = list()
     for item in tqdm(questions, desc='add questions to redis'):
         redis.set(item['question'], item['answer'])
+        listed_questions.append({
+            'question': item['question'],
+            'answer': item['answer']
+        })
         try:
             assert redis.get(item['question']).decode('utf-8') == item['answer']
         except AssertionError:
@@ -62,3 +69,5 @@ if __name__ == '__main__':
                 {redis.get(item['question']).decode('utf-8')}
                 """
             )
+    with open('questions.json', 'w') as file:
+        json.dump(listed_questions, file, indent=4, ensure_ascii=False)

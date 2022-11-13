@@ -5,6 +5,8 @@ import logging
 import json
 import settings
 from redis import Redis
+from random import choice
+from difflib import SequenceMatcher
 
 redis = Redis(host='localhost', port=6379, db=0)
 
@@ -27,15 +29,69 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
 
+def answer_clarify(answer: str,
+                   clarify_params: list = (' - ', '. ', ' ('),
+                   clean_params: list = ('...', '"')) -> str:
+    for param in clean_params:
+        answer = ''.join(answer.split(param))
+    for param in clarify_params:
+        answer = answer.split(param)[0]
+    return answer.strip()
+
+
 def message_handler(update: Update, context: CallbackContext) -> None:
     if update.message.text == settings.NEW_QUESTION_BUTTON:
-        with open('test.json', 'r') as file:
-            questions = json.load(file)
+        current_question = redis.get(
+            f'{update.effective_chat.id}_current_question'
+        )
+        if current_question:
+            context.bot.send_message(
+                update.effective_chat.id,
+                text='Вы еще не ответили на предыдущий вопрос.'
+            )
+            question = current_question.decode('utf-8')
+        else:
+            with open('new_test.json', 'r') as file:
+                file_data = json.load(file)
+            question = choice(file_data)['question']
+            redis.set(f'{update.effective_chat.id}_current_question', question)
+        context.bot.send_message(
+            update.effective_chat.id,
+            text=question
+        )
         
-    context.bot.send_message(
-        update.effective_chat.id,
-        text=update.message.text
-    )
+    else:
+        current_question = redis.get(
+            f'{update.effective_chat.id}_current_question'
+        )
+        
+        if current_question:
+            correct_answer = redis.get(current_question.decode('utf-8')).decode('utf-8')
+            clarified_answer = answer_clarify(correct_answer)
+            print(clarified_answer)
+            answer_ratio = SequenceMatcher(
+                None,
+                clarified_answer.lower(),
+                update.message.text.lower()
+            ).ratio()
+            print(answer_ratio)
+            if answer_ratio >= env.float('ANSWER_RATIO_BORDER'):
+                context.bot.send_message(
+                    update.effective_chat.id,
+                    text='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
+                )
+                redis.delete(f'{update.effective_chat.id}_current_question')
+            else:
+                context.bot.send_message(
+                    update.effective_chat.id,
+                    text='Неправильно… Попробуешь ещё раз?'
+                )
+        else:
+
+            context.bot.send_message(
+                update.effective_chat.id,
+                text=update.message.text
+            )
 
 
 def errors_handler(update: Update, context: CallbackContext) -> None:
