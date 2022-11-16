@@ -11,3 +11,5 @@ preface
 *.txt
 
 **/__pycache__
+
+.vscode
