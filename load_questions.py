@@ -1,9 +1,10 @@
+import json
 import os
 from pathlib import Path
-from tqdm import tqdm
-from redis import Redis
+
 from environs import Env
-import json
+from redis import Redis
+from tqdm import tqdm
 
 
 def parse_questions_files(files_dir: str = 'quiz-questions') -> list:
