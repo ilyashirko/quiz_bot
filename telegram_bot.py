@@ -1,14 +1,14 @@
 import logging
 from typing import Union
 
-from environs import Env
+from redis.client import Redis
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
 
 import settings
 from bot_processing import (get_answer_and_status, increase_user_score,
-                            is_correct_answer, logger, questions, redis)
+                            is_correct_answer, logger)
 from log_handlers import TelegramLogsHandler
 
 PLATFORM = 'TELEGRAM'
@@ -21,6 +21,20 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
     )
 
+redis_user = Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    password=settings.REDIS_PASSWORD,
+    db=settings.REDIS_DB_QUESTIONS
+)
+
+redis_questions = Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    password=settings.REDIS_PASSWORD,
+    db=settings.REDIS_DB_QUESTIONS
+)
+
 
 def start(update: Update, context: CallbackContext) -> None:
     context.bot.send_message(
@@ -32,9 +46,7 @@ def start(update: Update, context: CallbackContext) -> None:
 
 def send_answer(update: Update, context: CallbackContext) -> str:
     question, wasnt_answered = get_answer_and_status(
-        redis,
         update.effective_chat.id,
-        questions,
         PLATFORM
     )
     if wasnt_answered:
@@ -50,20 +62,25 @@ def send_answer(update: Update, context: CallbackContext) -> str:
 
 
 def change_question(update: Update, context: CallbackContext) -> None:
-    current_question = redis.get(
+    current_question = redis_user.get(
         f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
-    correct_answer = redis.get(current_question).decode('utf-8')
+    correct_answer = redis_questions.get(current_question) \
+        .decode('utf-8')
     context.bot.send_message(
         update.effective_chat.id,
         text=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
     )
-    redis.delete(f'{PLATFORM}_{update.effective_chat.id}_current_question')
+    redis_user.delete(
+        f'{PLATFORM}_{update.effective_chat.id}_current_question'
+    )
     return ConversationHandler.END
 
 
 def show_score(update: Update, context: CallbackContext) -> None:
-    user_score = redis.get(f'{PLATFORM}_{update.effective_chat.id}_score')
+    user_score = redis_user.get(
+        f'{PLATFORM}_{update.effective_chat.id}_score'
+    )
     if not user_score:
         context.bot.send_message(
             update.effective_chat.id,
@@ -77,14 +94,15 @@ def show_score(update: Update, context: CallbackContext) -> None:
 
 
 def check_answer(update: Update, context: CallbackContext) -> Union[int, str]:
-    current_question = redis.get(
+    current_question = redis_user.get(
         f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
-    if is_correct_answer(redis.get(current_question).decode('utf-8'),
-                         update.message.text,
-                         env.float('ANSWER_RATIO_BORDER')):
-        redis.delete(f'{PLATFORM}_{update.effective_chat.id}_current_question')
-        increase_user_score(redis, update.effective_chat.id, PLATFORM)
+    if is_correct_answer(redis_questions.get(current_question).decode('utf-8'),
+                         update.message.text):
+        redis_user.delete(
+            f'{PLATFORM}_{update.effective_chat.id}_current_question'
+        )
+        increase_user_score(update.effective_chat.id, PLATFORM)
         context.bot.send_message(
             update.effective_chat.id,
             text=(
@@ -92,7 +110,7 @@ def check_answer(update: Update, context: CallbackContext) -> Union[int, str]:
                 'Для следующего вопроса нажми «Новый вопрос»'
             )
         )
-        
+
         return ConversationHandler.END
     else:
         context.bot.send_message(
@@ -119,7 +137,7 @@ def startbot(tg_bot_token: str) -> None:
 
     logger.setLevel(logging.INFO)
     logger.addHandler(
-        TelegramLogsHandler(updater.bot, env.int('ADMIN_TELEGRAM_ID'))
+        TelegramLogsHandler(updater.bot, settings.ADMIN_TELEGRAM_ID)
     )
     logger.info('[TELEGRAM] Support bot started')
 
@@ -131,7 +149,7 @@ def startbot(tg_bot_token: str) -> None:
         ConversationHandler(
             entry_points=[
                 MessageHandler(
-                    filters=Filters.text([settings.NEW_QUESTION_BUTTON]), 
+                    filters=Filters.text([settings.NEW_QUESTION_BUTTON]),
                     callback=send_answer
                 )
             ],
@@ -172,7 +190,4 @@ def startbot(tg_bot_token: str) -> None:
 
 
 if __name__ == '__main__':
-    env = Env()
-    env.read_env()
-
-    startbot(env.str('TELEGRAM_BOT_TOKEN'))
+    startbot(settings.TELEGRAM_BOT_TOKEN)
