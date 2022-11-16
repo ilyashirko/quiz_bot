@@ -1,26 +1,17 @@
-import json
 import logging
-from difflib import SequenceMatcher
-from random import choice
 from typing import Union
 
-import settings
 from environs import Env
-from redis import Redis
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
-                      ReplyKeyboardMarkup, ReplyKeyboardRemove, Update)
-from telegram.ext import (CallbackContext, CallbackQueryHandler,
-                          CommandHandler, ConversationHandler, Filters,
-                          MessageHandler, Updater)
+from telegram import ReplyKeyboardMarkup, Update
+from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
+                          Filters, MessageHandler, Updater)
 
+import settings
+from bot_processing import (get_answer_and_status, increase_user_score,
+                            is_correct_answer, logger, questions, redis)
 from log_handlers import TelegramLogsHandler
 
-redis = Redis(host='localhost', port=6379, db=0)
-
-logger = logging.getLogger('log.log')
-
-with open('new_test.json', 'r') as file:
-    questions = json.load(file)
+PLATFORM = 'TELEGRAM'
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
@@ -39,31 +30,18 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
 
-def answer_clarify(answer: str,
-                   clarify_params: list = (' - ', '. ', ' ('),
-                   clean_params: list = ('...', '"')) -> str:
-    for param in clean_params:
-        answer = ''.join(answer.split(param))
-    for param in clarify_params:
-        answer = answer.split(param)[0]
-    return answer.strip()
-
-
 def send_answer(update: Update, context: CallbackContext) -> str:
-    current_question = redis.get(
-        f'{update.effective_chat.id}_current_question'
+    question, wasnt_answered = get_answer_and_status(
+        redis,
+        update.effective_chat.id,
+        questions,
+        PLATFORM
     )
-    if current_question:
+    if wasnt_answered:
         context.bot.send_message(
             update.effective_chat.id,
             text='Вы еще не ответили на предыдущий вопрос.'
         )
-        question = current_question.decode('utf-8')
-    else:
-        
-        question = choice(questions)["question"]
-        redis.set(f'{update.effective_chat.id}_current_question', question)
-
     context.bot.send_message(
         update.effective_chat.id,
         text=question
@@ -73,23 +51,23 @@ def send_answer(update: Update, context: CallbackContext) -> str:
 
 def change_question(update: Update, context: CallbackContext) -> None:
     current_question = redis.get(
-        f'{update.effective_chat.id}_current_question'
+        f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
     correct_answer = redis.get(current_question).decode('utf-8')
     context.bot.send_message(
         update.effective_chat.id,
         text=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
     )
-    redis.delete(f'{update.effective_chat.id}_current_question')
+    redis.delete(f'{PLATFORM}_{update.effective_chat.id}_current_question')
     return ConversationHandler.END
 
 
 def show_score(update: Update, context: CallbackContext) -> None:
-    user_score = redis.get(f'{update.effective_chat.id}_score')
+    user_score = redis.get(f'{PLATFORM}_{update.effective_chat.id}_score')
     if not user_score:
         context.bot.send_message(
             update.effective_chat.id,
-            text=f'У вас пока ноль очков',
+            text='У вас пока ноль очков',
         )
     else:
         context.bot.send_message(
@@ -100,32 +78,21 @@ def show_score(update: Update, context: CallbackContext) -> None:
 
 def check_answer(update: Update, context: CallbackContext) -> Union[int, str]:
     current_question = redis.get(
-        f'{update.effective_chat.id}_current_question'
+        f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
-    
-    correct_answer = redis.get(current_question).decode('utf-8')
-    clarified_answer = answer_clarify(correct_answer)
-    
-    answer_ratio = SequenceMatcher(
-        None,
-        clarified_answer.lower(),
-        update.message.text.lower()
-    ).ratio()
-    if answer_ratio >= env.float('ANSWER_RATIO_BORDER'):
+    if is_correct_answer(redis.get(current_question).decode('utf-8'),
+                         update.message.text,
+                         env.float('ANSWER_RATIO_BORDER')):
+        redis.delete(f'{PLATFORM}_{update.effective_chat.id}_current_question')
+        increase_user_score(redis, update.effective_chat.id, PLATFORM)
         context.bot.send_message(
             update.effective_chat.id,
-            text='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»'
+            text=(
+                'Правильно! Поздравляю! '
+                'Для следующего вопроса нажми «Новый вопрос»'
+            )
         )
-        redis.delete(f'{update.effective_chat.id}_current_question')
-
-        user_score = redis.get(f'{update.effective_chat.id}_score')
-        if not user_score:
-            redis.set(f'{update.effective_chat.id}_score', 1)
-        else:
-            redis.set(
-                f'{update.effective_chat.id}_score',
-                int(user_score.decode('utf-8')) + 1
-                )
+        
         return ConversationHandler.END
     else:
         context.bot.send_message(
