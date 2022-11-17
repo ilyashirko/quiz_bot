@@ -22,17 +22,17 @@ redis_questions = Redis(
 )
 
 
-def get_answer_and_status(user_tg_id: str,
+def get_answer_and_status(user_id: str,
                           platform: int) -> tuple[str, bool]:
     current_question = redis_user.get(
-        f'{platform}_{user_tg_id}_current_question'
+        f'{platform}_{user_id}_current_question'
     )
     if current_question:
         return current_question.decode('utf-8'), True
     else:
         question = redis_questions.randomkey().decode('utf-8')
         redis_user.set(
-            f'{platform}_{user_tg_id}_current_question',
+            f'{platform}_{user_id}_current_question',
             question
         )
         return question, False
