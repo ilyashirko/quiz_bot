@@ -45,11 +45,11 @@ def start(update: Update, context: CallbackContext) -> None:
 
 
 def send_answer(update: Update, context: CallbackContext) -> str:
-    question, wasnt_answered = get_answer_and_status(
+    question, is_new = get_answer_and_status(
         update.effective_chat.id,
         PLATFORM
     )
-    if wasnt_answered:
+    if not is_new:
         context.bot.send_message(
             update.effective_chat.id,
             text='Вы еще не ответили на предыдущий вопрос.'

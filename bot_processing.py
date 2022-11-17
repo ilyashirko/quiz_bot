@@ -28,14 +28,14 @@ def get_answer_and_status(user_id: str,
         f'{platform}_{user_id}_current_question'
     )
     if current_question:
-        return current_question.decode('utf-8'), True
+        return current_question.decode('utf-8'), False
     else:
         question = redis_questions.randomkey().decode('utf-8')
         redis_user.set(
             f'{platform}_{user_id}_current_question',
             question
         )
-        return question, False
+        return question, True
 
 
 def clarify_answer(answer: str,
