@@ -1,4 +1,5 @@
 import os
+from argparse import ArgumentParser
 from pathlib import Path
 
 from redis.client import Redis
@@ -7,7 +8,21 @@ from tqdm import tqdm
 import settings
 
 
-def parse_questions_files(files_dir: str = 'quiz-questions') -> list:
+def create_parser() -> ArgumentParser:
+    parser = ArgumentParser(
+        description="Create redis with questions"
+    )
+    parser.add_argument(
+        '--dir_with_txt',
+        '-d',
+        type=str,
+        help='dir with questions txt files',
+        required=True
+    )
+    return parser
+
+
+def parse_questions_files(files_dir: str) -> list:
     questions_filenames = os.listdir(files_dir)
 
     questions = list()
@@ -38,14 +53,15 @@ def parse_questions_files(files_dir: str = 'quiz-questions') -> list:
 
 
 if __name__ == '__main__':
+    args = create_parser().parse_args()
+
     redis_questions = Redis(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
         password=settings.REDIS_PASSWORD,
         db=settings.REDIS_DB_QUESTIONS
     )
-    questions = parse_questions_files()
-    listed_questions = list()
-
-    for num, item in tqdm(questions, desc='add questions to redis'):
+    questions = parse_questions_files(args.dir_with_txt)
+    
+    for item in tqdm(questions, desc='add questions to redis'):
         redis_questions.set(item['question'], item['answer'])
