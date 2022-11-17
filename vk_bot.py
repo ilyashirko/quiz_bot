@@ -139,8 +139,8 @@ def run_vk_bot(vk_bot_token: str) -> None:
                 else:
                     message_handler(event, vk_api)
 
-    except Exception as error:
-        logger.error(msg='[VK BOT ERROR]\n', exc_info=error)
+    except Exception:
+        logger.exception('[VK BOT ERROR]')
 
 
 if __name__ == '__main__':

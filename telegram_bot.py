@@ -129,7 +129,7 @@ def conversation_cancel(update: Update, context: CallbackContext) -> int:
 
 
 def errors_handler(update: Update, context: CallbackContext) -> None:
-    logger.error(msg='[TELEGRAM BOT ERROR]\n', exc_info=context.error)
+    logger.exception('[TELEGRAM BOT ERROR]')
 
 
 def startbot(tg_bot_token: str) -> None:
