@@ -95,6 +95,7 @@ def message_handler(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
             random_id=random.randint(1, 1000),
             keyboard=get_main_keyboard()
         )
+        return
     if is_correct_answer(redis_questions.get(current_question).decode('utf-8'),
                             event.message):
         redis_user.delete(f'{PLATFORM}_{event.user_id}_current_question')
