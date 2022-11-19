@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from typing import Union
 
 from redis.client import Redis
@@ -21,20 +22,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
     )
 
-redis_user = Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    password=settings.REDIS_PASSWORD,
-    db=settings.REDIS_DB_QUESTIONS
-)
-
-redis_questions = Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    password=settings.REDIS_PASSWORD,
-    db=settings.REDIS_DB_QUESTIONS
-)
-
 
 def start(update: Update, context: CallbackContext) -> None:
     context.bot.send_message(
@@ -44,10 +31,15 @@ def start(update: Update, context: CallbackContext) -> None:
     )
 
 
-def send_answer(update: Update, context: CallbackContext) -> str:
+def send_answer(redis_users: Redis,
+                redis_questions: Redis,
+                update: Update,
+                context: CallbackContext) -> str:
     question, is_new = get_answer_and_status(
         update.effective_chat.id,
-        PLATFORM
+        PLATFORM,
+        redis_users,
+        redis_questions
     )
     if not is_new:
         context.bot.send_message(
@@ -61,8 +53,11 @@ def send_answer(update: Update, context: CallbackContext) -> str:
     return 'GET_ANSWER'
 
 
-def change_question(update: Update, context: CallbackContext) -> None:
-    current_question = redis_user.get(
+def change_question(redis_users: Redis,
+                    redis_questions: Redis,
+                    update: Update,
+                    context: CallbackContext) -> None:
+    current_question = redis_users.get(
         f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
     correct_answer = redis_questions.get(current_question) \
@@ -71,14 +66,16 @@ def change_question(update: Update, context: CallbackContext) -> None:
         update.effective_chat.id,
         text=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
     )
-    redis_user.delete(
+    redis_users.delete(
         f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
     return ConversationHandler.END
 
 
-def show_score(update: Update, context: CallbackContext) -> None:
-    user_score = redis_user.get(
+def show_score(redis_users: Redis,
+               update: Update,
+               context: CallbackContext) -> None:
+    user_score = redis_users.get(
         f'{PLATFORM}_{update.effective_chat.id}_score'
     )
     if not user_score:
@@ -93,16 +90,19 @@ def show_score(update: Update, context: CallbackContext) -> None:
         )
 
 
-def check_answer(update: Update, context: CallbackContext) -> Union[int, str]:
-    current_question = redis_user.get(
+def check_answer(redis_users: Redis,
+                 redis_questions: Redis,
+                 update: Update,
+                 context: CallbackContext) -> Union[int, str]:
+    current_question = redis_users.get(
         f'{PLATFORM}_{update.effective_chat.id}_current_question'
     )
     if is_correct_answer(redis_questions.get(current_question).decode('utf-8'),
                          update.message.text):
-        redis_user.delete(
+        redis_users.delete(
             f'{PLATFORM}_{update.effective_chat.id}_current_question'
         )
-        increase_user_score(update.effective_chat.id, PLATFORM)
+        increase_user_score(update.effective_chat.id, PLATFORM, redis_users)
         context.bot.send_message(
             update.effective_chat.id,
             text=(
@@ -135,6 +135,20 @@ def errors_handler(update: Update, context: CallbackContext) -> None:
 def startbot(tg_bot_token: str) -> None:
     updater = Updater(token=tg_bot_token, use_context=True)
 
+    redis_users = Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD,
+        db=settings.REDIS_DB_USERS
+    )
+
+    redis_questions = Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD,
+        db=settings.REDIS_DB_QUESTIONS
+    )
+
     logger.setLevel(logging.INFO)
     logger.addHandler(
         TelegramLogsHandler(updater.bot, settings.ADMIN_TELEGRAM_ID)
@@ -149,8 +163,8 @@ def startbot(tg_bot_token: str) -> None:
         ConversationHandler(
             entry_points=[
                 MessageHandler(
-                    filters=Filters.text([settings.NEW_QUESTION_BUTTON]),
-                    callback=send_answer
+                    Filters.text([settings.NEW_QUESTION_BUTTON]),
+                    partial(send_answer, redis_users, redis_questions)
                 )
             ],
 
@@ -158,13 +172,17 @@ def startbot(tg_bot_token: str) -> None:
                 'GET_ANSWER': [
                     MessageHandler(
                         Filters.text([settings.GIVE_UP_BUTTON]),
-                        change_question
+                        partial(change_question, redis_users, redis_questions)
                     ),
                     MessageHandler(
                         Filters.text([settings.SCORES_BUTTON]),
-                        show_score
+                        partial(show_score, redis_users)
                     ),
-                    MessageHandler(Filters.text, check_answer)]
+                    MessageHandler(
+                        Filters.text,
+                        partial(check_answer, redis_users, redis_questions)
+                    )
+                ]
             },
 
             fallbacks=[

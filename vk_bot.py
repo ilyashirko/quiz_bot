@@ -14,20 +14,6 @@ from log_handlers import TelegramLogsHandler
 
 PLATFORM = 'VK'
 
-redis_user = Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    password=settings.REDIS_PASSWORD,
-    db=settings.REDIS_DB_QUESTIONS
-)
-
-redis_questions = Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    password=settings.REDIS_PASSWORD,
-    db=settings.REDIS_DB_QUESTIONS
-)
-
 
 def get_main_keyboard() -> VkKeyboard:
     keyboard = VkKeyboard()
@@ -38,10 +24,15 @@ def get_main_keyboard() -> VkKeyboard:
     return keyboard.get_keyboard()
 
 
-def send_answer(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
+def send_answer(event: Event,
+                vk_api: vk.vk_api.VkApiMethod,
+                redis_users: Redis,
+                redis_questions: Redis) -> None:
     question, is_new = get_answer_and_status(
         event.user_id,
-        PLATFORM
+        PLATFORM,
+        redis_users,
+        redis_questions
     )
     if not is_new:
         vk_api.messages.send(
@@ -56,8 +47,11 @@ def send_answer(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
     )
 
 
-def give_up(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
-    current_question = redis_user.get(
+def give_up(event: Event,
+            vk_api: vk.vk_api.VkApiMethod,
+            redis_users: Redis,
+            redis_questions: Redis) -> None:
+    current_question = redis_users.get(
         f'{PLATFORM}_{event.user_id}_current_question'
     )
     correct_answer = redis_questions.get(current_question).decode('utf-8')
@@ -66,11 +60,13 @@ def give_up(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
         message=f'Жаль, что не угадали.\n\nПравильный ответ:\n{correct_answer}',
         random_id=random.randint(1, 1000)
     )
-    redis_user.delete(f'{PLATFORM}_{event.user_id}_current_question')
+    redis_users.delete(f'{PLATFORM}_{event.user_id}_current_question')
 
 
-def send_user_scores(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
-    user_score = redis_user.get(f'{PLATFORM}_{event.user_id}_score')
+def send_user_scores(event: Event,
+                     vk_api: vk.vk_api.VkApiMethod,
+                     redis_users: Redis) -> None:
+    user_score = redis_users.get(f'{PLATFORM}_{event.user_id}_score')
     if not user_score:
         vk_api.messages.send(
             user_id=event.user_id,
@@ -84,8 +80,12 @@ def send_user_scores(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
             random_id=random.randint(1, 1000)
         )
 
-def message_handler(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
-    current_question = redis_user.get(
+
+def message_handler(event: Event,
+                    vk_api: vk.vk_api.VkApiMethod,
+                    redis_users: Redis,
+                    redis_questions: Redis) -> None:
+    current_question = redis_users.get(
         f'{PLATFORM}_{event.user_id}_current_question'
     )
     if not current_question:
@@ -97,9 +97,9 @@ def message_handler(event: Event, vk_api: vk.vk_api.VkApiMethod) -> None:
         )
         return
     if is_correct_answer(redis_questions.get(current_question).decode('utf-8'),
-                            event.message):
-        redis_user.delete(f'{PLATFORM}_{event.user_id}_current_question')
-        increase_user_score(event.user_id, PLATFORM)
+                         event.message):
+        redis_users.delete(f'{PLATFORM}_{event.user_id}_current_question')
+        increase_user_score(event.user_id, PLATFORM, redis_users)
         vk_api.messages.send(
             user_id=event.user_id,
             message='Правильно! Поздравляю! Для следующего вопроса нажми «Новый вопрос»',
@@ -118,6 +118,20 @@ def run_vk_bot(vk_bot_token: str) -> None:
     vk_api = vk_session.get_api()
     longpoll = VkLongPoll(vk_session)
 
+    redis_users = Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD,
+        db=settings.REDIS_DB_USERS
+    )
+
+    redis_questions = Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        password=settings.REDIS_PASSWORD,
+        db=settings.REDIS_DB_QUESTIONS
+    )
+
     logger.setLevel(logging.INFO)
     logger.addHandler(
         TelegramLogsHandler(
@@ -131,13 +145,18 @@ def run_vk_bot(vk_bot_token: str) -> None:
         for event in longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                 if event.text == settings.NEW_QUESTION_BUTTON:
-                    send_answer(event, vk_api)
+                    send_answer(event, vk_api, redis_users, redis_questions)
                 elif event.text == settings.GIVE_UP_BUTTON:
-                    give_up(event, vk_api)
+                    give_up(event, vk_api, redis_users, redis_questions)
                 elif event.text == settings.SCORES_BUTTON:
-                    send_user_scores(event, vk_api)
+                    send_user_scores(event, vk_api, redis_users)
                 else:
-                    message_handler(event, vk_api)
+                    message_handler(
+                        event,
+                        vk_api,
+                        redis_users,
+                        redis_questions
+                    )
 
     except Exception:
         logger.exception('[VK BOT ERROR]')
