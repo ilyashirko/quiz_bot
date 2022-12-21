@@ -168,5 +168,5 @@ def run_vk_bot(vk_bot_token: str) -> None:
 if __name__ == '__main__':
     env = Env()
     env.read_env()
-    input(os.getenv('VK_BOT_TOKEN'))
+    
     run_vk_bot(os.getenv('VK_BOT_TOKEN'))
