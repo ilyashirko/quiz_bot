@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 
 from redis.client import Redis
 
-import settings
+from settings import DEFAULT_ANSWER_RATIO_BORDER
 
 logger = logging.getLogger('log.log')
 
@@ -51,7 +51,7 @@ def increase_user_score(user_id: str,
 
 def is_correct_answer(correct_answer: str,
                       user_answer: str,
-                      answer_ratio_border: float = settings.ANSWER_RATIO_BORDER) -> bool:
+                      answer_ratio_border: float = DEFAULT_ANSWER_RATIO_BORDER) -> bool:
     clarified_answer = clarify_answer(correct_answer)
     answer_ratio = SequenceMatcher(
         None,

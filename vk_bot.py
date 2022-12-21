@@ -1,15 +1,18 @@
 import logging
 import random
+import os
 
 import vk_api as vk
+from environs import Env
 from redis.client import Redis
 from telegram import Bot
 from vk_api.keyboard import VkKeyboard
 from vk_api.longpoll import Event, VkEventType, VkLongPoll
 
-import settings
+
 from bot_processing import (get_answer_and_status, increase_user_score,
                             is_correct_answer, logger)
+import settings
 from log_handlers import TelegramLogsHandler
 
 PLATFORM = 'VK'
@@ -119,24 +122,24 @@ def run_vk_bot(vk_bot_token: str) -> None:
     longpoll = VkLongPoll(vk_session)
 
     redis_users = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD,
+        host=os.getenv('REDIS_HOST', settings.DEFAULT_REDIS_HOST),
+        port=int(os.getenv('REDIS_PORT', settings.DEFAULT_REDIS_PORT)),
+        password=os.getenv('REDIS_PASSWORD', settings.DEFAULT_REDIS_PASSWORD),
         db=settings.REDIS_DB_USERS
     )
 
     redis_questions = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD,
+        host=os.getenv('REDIS_HOST', settings.DEFAULT_REDIS_HOST),
+        port=int(os.getenv('REDIS_PORT', settings.DEFAULT_REDIS_PORT)),
+        password=os.getenv('REDIS_PASSWORD', settings.DEFAULT_REDIS_PASSWORD),
         db=settings.REDIS_DB_QUESTIONS
     )
 
     logger.setLevel(logging.INFO)
     logger.addHandler(
         TelegramLogsHandler(
-            Bot(settings.TELEGRAM_BOT_TOKEN),
-            settings.ADMIN_TELEGRAM_ID
+            Bot(os.getenv('TELEGRAM_BOT_TOKEN')),
+            int(os.getenv('ADMIN_TELEGRAM_ID'))
         )
     )
     logger.info('[VK] Support bot started')
@@ -163,4 +166,7 @@ def run_vk_bot(vk_bot_token: str) -> None:
 
 
 if __name__ == '__main__':
-    run_vk_bot(settings.VK_BOT_TOKEN)
+    env = Env()
+    env.read_env()
+    input(os.getenv('VK_BOT_TOKEN'))
+    run_vk_bot(os.getenv('VK_BOT_TOKEN'))

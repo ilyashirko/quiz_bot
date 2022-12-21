@@ -1,16 +1,19 @@
 import logging
 from functools import partial
 from typing import Union
+import os
 
+from environs import Env
 from redis.client import Redis
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.ext import (CallbackContext, CommandHandler, ConversationHandler,
                           Filters, MessageHandler, Updater)
 
-import settings
+
 from bot_processing import (get_answer_and_status, increase_user_score,
                             is_correct_answer, logger)
 from log_handlers import TelegramLogsHandler
+import settings
 
 PLATFORM = 'TELEGRAM'
 
@@ -136,22 +139,22 @@ def startbot(tg_bot_token: str) -> None:
     updater = Updater(token=tg_bot_token, use_context=True)
 
     redis_users = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD,
+        host=os.getenv('REDIS_HOST', settings.DEFAULT_REDIS_HOST),
+        port=int(os.getenv('REDIS_PORT', settings.DEFAULT_REDIS_PORT)),
+        password=os.getenv('REDIS_PASSWORD', settings.DEFAULT_REDIS_PASSWORD),
         db=settings.REDIS_DB_USERS
     )
 
     redis_questions = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD,
+        host=os.getenv('REDIS_HOST', settings.DEFAULT_REDIS_HOST),
+        port=int(os.getenv('REDIS_PORT', settings.DEFAULT_REDIS_PORT)),
+        password=os.getenv('REDIS_PASSWORD', settings.DEFAULT_REDIS_PASSWORD),
         db=settings.REDIS_DB_QUESTIONS
     )
 
     logger.setLevel(logging.INFO)
     logger.addHandler(
-        TelegramLogsHandler(updater.bot, settings.ADMIN_TELEGRAM_ID)
+        TelegramLogsHandler(updater.bot, int(os.getenv('ADMIN_TELEGRAM_ID')))
     )
     logger.info('[TELEGRAM] Support bot started')
 
@@ -208,4 +211,7 @@ def startbot(tg_bot_token: str) -> None:
 
 
 if __name__ == '__main__':
-    startbot(settings.TELEGRAM_BOT_TOKEN)
+    env = Env()
+    env.read_env()
+
+    startbot(env.str('TELEGRAM_BOT_TOKEN'))

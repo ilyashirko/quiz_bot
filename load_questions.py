@@ -56,11 +56,12 @@ if __name__ == '__main__':
     args = create_parser().parse_args()
 
     redis_questions = Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        password=settings.REDIS_PASSWORD,
+        host=os.getenv('REDIS_HOST', settings.DEFAULT_REDIS_HOST),
+        port=int(os.getenv('REDIS_PORT', settings.DEFAULT_REDIS_PORT)),
+        password=os.getenv('REDIS_PASSWORD', settings.DEFAULT_REDIS_PASSWORD),
         db=settings.REDIS_DB_QUESTIONS
     )
+
     questions = parse_questions_files(args.dir_with_txt)
     
     for item in tqdm(questions, desc='add questions to redis'):
